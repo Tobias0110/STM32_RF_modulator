@@ -22,3 +22,5 @@ This picture shows the NFM spectrum with the compressor enabled.
 ![Compressor on](/nfm_with_compressor.PNG)  
 This picture shows the NFM spectrum with no compressor.  
 ![Compressor off](/nfm_no_compressor.PNG)  
+Spectrum of USB modulation.  
+![USB](/USB.PNG)
