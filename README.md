@@ -18,6 +18,7 @@ You need:
 
 ## Quality
 There are some audio exampels in the repository.  
+Update: The FM quality could be further improved while reducing the modulator code. The preemphasis filter is now implemented in the DC blocking filter. There are no new audio samples jet.
 This picture shows the NFM spectrum with the compressor enabled.  
 ![Compressor on](/nfm_with_compressor.PNG)  
 This picture shows the NFM spectrum with no compressor.  
