@@ -1,0 +1,25 @@
+--cpu Cortex-M3
+"digital_ssb\startup_stm32f103xb.o"
+"digital_ssb\main.o"
+"digital_ssb\stm32f1xx_it.o"
+"digital_ssb\stm32f1xx_hal_msp.o"
+"digital_ssb\stm32f1xx_hal_gpio_ex.o"
+"digital_ssb\stm32f1xx_hal_adc.o"
+"digital_ssb\stm32f1xx_hal_adc_ex.o"
+"digital_ssb\stm32f1xx_hal_tim.o"
+"digital_ssb\stm32f1xx_hal_tim_ex.o"
+"digital_ssb\stm32f1xx_hal.o"
+"digital_ssb\stm32f1xx_hal_rcc.o"
+"digital_ssb\stm32f1xx_hal_rcc_ex.o"
+"digital_ssb\stm32f1xx_hal_gpio.o"
+"digital_ssb\stm32f1xx_hal_dma.o"
+"digital_ssb\stm32f1xx_hal_cortex.o"
+"digital_ssb\stm32f1xx_hal_pwr.o"
+"digital_ssb\stm32f1xx_hal_flash.o"
+"digital_ssb\stm32f1xx_hal_flash_ex.o"
+"digital_ssb\system_stm32f1xx.o"
+"C:\Keil_v5\ARM\PACK\ARM\CMSIS\5.3.0\CMSIS\Lib\ARM\arm_cortexM3l_math.lib"
+--library_type=microlib --strict --scatter "digital_ssb\digital_ssb.sct"
+--summary_stderr --info summarysizes --map --load_addr_map_info --xref --callgraph --symbols
+--info sizes --info totals --info unused --info veneers
+--list "digital_ssb.map" -o digital_ssb\digital_ssb.axf
