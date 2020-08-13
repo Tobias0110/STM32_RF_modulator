@@ -6,3 +6,19 @@ The goal of this project is to create a HAM Radio transciver for under 50€. Th
 ## Using the code
 * The peripherals are configured via STM32CubeMX.
 * To open the software project you need uVision 5.
+
+## Hardware
+You need:
+* NUCLEO-F103RB board
+* AD9850 board
+* 12MHz Crystal. This must be soldered on the uC board (X3). R35 and R37 must be bridged. In my case the oscillator worked without C33 and C34.
+* Audio source
+
+![Pinout](/Pinout.PNG)
+
+## Quality
+There are some audio exampels in the repository.  
+This picture shows the NFM spectrum with the compressor enabled.  
+![Compressor on](/nfm_with_compressor.PNG)  
+This picture shows the NFM spectrum with no compressor.  
+![Compressor off](/nfm_no_compressor.PNG)  
