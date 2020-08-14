@@ -50,11 +50,11 @@
 
 #define TX_FREQ 36000000 //3600kHz
 #define PHASE_RES 58968
-#define MAX_F 50000 //Max NFM diveration
+#define MAX_F 60000 //Max SSB frequency offset
 
 //Macros
 #define toQ31 2147483648*
-#define mulQ31( a, b ) ((int32_t)(( ((int64_t) a) * ((int64_t) b) ) >> 31 ))
+#define mulQ31( a, b ) ((int32_t)(( ((int64_t) (a)) * ((int64_t) (b)) ) >> 31 ))
 #define rW( n ) w[(pos- n)&0xF]
 #define fromQ31( v ) (((float)v) / 2147483648 )
 /* USER CODE END Includes */
@@ -128,7 +128,7 @@ __forceinline static void bc_am()  //broadcast quality AM. Uses max. sample rate
 	static const float a_dc = 0.99;
 
 	//Remove DC
-	w_dc = adc_value + a_dc * w_dc1;
+	w_dc = (adc_value >> 3) + a_dc * w_dc1;
 	amplitude = ((int) (w_dc - w_dc1)) + 2048; //Add DC offset for carrier (2^12 / 2 = 2048)
 	w_dc1 = w_dc;
 	new_sample = 0;
@@ -146,6 +146,7 @@ __forceinline static void ssb(uint8_t lsb)
 	static q31_t amplitude_q;
 	static const q31_t a[4] = {toQ31(0.052981), toQ31(0.088199), toQ31(0.18683), toQ31(0.62783)};  //calculated with octave
 	static uint8_t pos = 0; //ringbuffer position
+	static const q31_t div = toQ31(0.5);
 	
 	//Phase to Frquency variables
 	static float  phase;
@@ -156,7 +157,7 @@ __forceinline static void ssb(uint8_t lsb)
 	hilbert_input_i = (int) (w_dc - w_dc1);
 	w_dc1 = w_dc;
 	
-	hilbert_input = hilbert_input_i * ( toQ31(1) / 2048 );
+	hilbert_input = mulQ31((hilbert_input_i * ( toQ31(1) / 2048 )), div);
 
 	w[++pos & 0x0F] = hilbert_input;
 	y_I = rW(7);
@@ -170,7 +171,7 @@ __forceinline static void ssb(uint8_t lsb)
 //++++++++THE FOLLOWING PART IS UNDER CONSTRUCTION++++++++
 	
 	//Komponentenschreibweise zu Winkelschreibweise (Component notation to Angular notation?)
-	arm_sqrt_q31(mulQ31(y_I, y_I) + mulQ31(y_Q, y_Q), &amplitude_q);
+	arm_sqrt_q31(mulQ31(mulQ31(y_I, y_I), div) + mulQ31(mulQ31(y_Q, y_Q), div), &amplitude_q);
 	//amplitude = (uint16_t) mulQ31( amplitude_q, (q31_t) toQ31( 4096 / toQ31(1))); //Not tested
 	
 	if((y_Q != 0) && (y_I != 0))
@@ -215,44 +216,20 @@ __forceinline static void ssb(uint8_t lsb)
 __forceinline static void nfm(uint8_t comp)
 {
 	//DC Removal variables
-	volatile static float w_dc = 0, w_dc1 = 0;
-	static const float a_dc = 0.99;
-	int16_t out_dc;
+	static float w_dc = 0, w_dc1 = 0;
+	static const float a_dc = 0.3;
+	static float out_dc;
 	
-	//Preemphasis Filter variables
-	static q31_t w[16], input, output;
-	static const q31_t b[6] = {toQ31(-0.0049835), toQ31(0.0098803), toQ31(-0.035046), toQ31(0.066495), toQ31(-0.21751), toQ31(0.22571)};
-	static uint8_t pos = 0;
 	static int16_t gain = 0;
 	static uint16_t to_high = 0, to_low = 0;
 	
-	//DC blocking filter (IIR Filter)
+	//DC blocking filter (IIR Filter) and Preemphasis Filter
 	w_dc = adc_value + a_dc * w_dc1;
-	out_dc = (int) (w_dc - w_dc1);
+	out_dc = (w_dc - w_dc1);
 	w_dc1 = w_dc;
 	
-	//input = adc_value * ( toQ31(1) / 2048 ); //Deactivates the DC blocking filter (not recommended)
-	
-	input = out_dc * ( toQ31(1) / 2048 ); //converting to q31
-	
-	//Preemphasis Filter (High pass filter 6dB/Octave)
-	w[++pos & 0x0F] = input;
-	output = 	mulQ31(rW(0), b[0]) +
-						mulQ31(rW(1), b[1]) +
-						mulQ31(rW(2), b[2]) +
-						mulQ31(rW(3), b[3]) +
-						mulQ31(rW(4), b[4]) +
-						mulQ31(rW(5), b[5]) +
-						mulQ31(rW(6), b[4]) +
-						mulQ31(rW(7), b[3]) +
-						mulQ31(rW(8), b[2]) +
-						mulQ31(rW(9), b[1]) +
-						mulQ31(rW(10), b[0]);
-	
-	//output = input; //for deactivating the Preemphasis Filter
-	
 	if(comp == 0) gain = 0; //Deactivates the compressor
-	offset = ((int64_t)output * 2048 * (384 + gain)) / toQ31(1); // Gain: low frequencies souldn't be changed, high frequencys are amplified (compared to the input signal)
+	offset = (int32_t) (out_dc * (50 + gain));
 	
 	//Compressor
 	if(offset > 50000) //Limmit frequency drift
@@ -378,7 +355,7 @@ while(1)
 		{
 		  HAL_GPIO_WritePin(GPIOA, LED_Pin, GPIO_PIN_SET); //Speed Test
 
-		  nfm(1);
+		  nfm(0);
 
 		  HAL_GPIO_WritePin(GPIOA, LED_Pin, GPIO_PIN_RESET); //Speed Test
 		}
