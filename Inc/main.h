@@ -57,12 +57,26 @@
 #define dds2_GPIO_Port GPIOC
 #define dds3_Pin GPIO_PIN_3
 #define dds3_GPIO_Port GPIOC
+#define Audio_Input_Pin GPIO_PIN_0
+#define Audio_Input_GPIO_Port GPIOA
 #define LED_Pin GPIO_PIN_5
 #define LED_GPIO_Port GPIOA
 #define dds4_Pin GPIO_PIN_4
 #define dds4_GPIO_Port GPIOC
 #define dds5_Pin GPIO_PIN_5
 #define dds5_GPIO_Port GPIOC
+#define D2_Pin GPIO_PIN_10
+#define D2_GPIO_Port GPIOB
+#define D3_Pin GPIO_PIN_11
+#define D3_GPIO_Port GPIOB
+#define D4_Pin GPIO_PIN_12
+#define D4_GPIO_Port GPIOB
+#define D5_Pin GPIO_PIN_13
+#define D5_GPIO_Port GPIOB
+#define D6_Pin GPIO_PIN_14
+#define D6_GPIO_Port GPIOB
+#define D7_Pin GPIO_PIN_15
+#define D7_GPIO_Port GPIOB
 #define dds6_Pin GPIO_PIN_6
 #define dds6_GPIO_Port GPIOC
 #define dds7_Pin GPIO_PIN_7
@@ -73,6 +87,16 @@
 #define w_clk_GPIO_Port GPIOC
 #define DDS_Reset_Pin GPIO_PIN_9
 #define DDS_Reset_GPIO_Port GPIOA
+#define TX_RX_IN_Pin GPIO_PIN_4
+#define TX_RX_IN_GPIO_Port GPIOB
+#define E_Pin GPIO_PIN_5
+#define E_GPIO_Port GPIOB
+#define RS_Pin GPIO_PIN_7
+#define RS_GPIO_Port GPIOB
+#define D0_Pin GPIO_PIN_8
+#define D0_GPIO_Port GPIOB
+#define D1_Pin GPIO_PIN_9
+#define D1_GPIO_Port GPIOB
 
 /* ########################## Assert Selection ############################## */
 /**

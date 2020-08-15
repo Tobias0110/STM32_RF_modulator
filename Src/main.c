@@ -35,7 +35,6 @@
   * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
   *
   ******************************************************************************
-	USER CODE COPYRIGHT(c) 2020 Tobias Ecker OE3TEC and Matthias Preymann
   */
 /* Includes ------------------------------------------------------------------*/
 #include "main.h"
@@ -48,11 +47,12 @@
 #include <math.h>
 #include <string.h>
 
-#define TX_FREQ 36000000 //3600kHz
 #define PHASE_RES 58968
 #define MAX_F 60000 //Max SSB frequency offset
+#define PHASE_RES_2 31
 
 //Macros
+#define GPIOB_PIN(n) (*(PERIPH_BB_BASE + (GPIOB->ODR - PERIPH_BASE) * 0x20 + n * 4)) //Bit banding
 #define toQ31 2147483648*
 #define mulQ31( a, b ) ((int32_t)(( ((int64_t) (a)) * ((int64_t) (b)) ) >> 31 ))
 #define rW( n ) w[(pos- n)&0xF]
@@ -88,8 +88,122 @@ volatile uint8_t new_sample = 0, carrier = 0;  //new_sample: tells the main prog
 volatile static int16_t adc_value = 0, amplitude = 0; //in and outputs
 volatile int32_t dif = 0;
 volatile static int32_t offset;
+volatile static uint8_t phase_reg;
+volatile static uint32_t freq = 36000000; //TX/RX Frequency
 
-inline static void set_ad9850_freq(uint64_t freq_buf, uint8_t pw_d) //freq in * 0,1 Hz (dezi Hz)
+static void lcd_write(uint8_t data, uint8_t RS)
+{
+	uint8_t i;
+	
+	GPIOB->ODR &= 0x005F; //Clear all Bits
+	GPIOB->ODR |= RS << 7; //Set RS
+	GPIOB->ODR |= 1 << 5; //Set E to high
+	GPIOB->ODR |= data << 8; //Output data
+	for(i=0;i<255;i++); //Delay
+	GPIOB->ODR &= ~(1 << 5); //Set E to low
+	for(i=0;i<255;i++); //Delay
+}
+
+static void lcd_init()
+{
+	HAL_Delay(15);
+	lcd_write(0x30, 0);
+	HAL_Delay(5);
+	lcd_write(0x30, 0);
+	HAL_Delay(1);
+	lcd_write(0x30, 0);
+	//Select Mode (cursor increment, position fix)
+	lcd_write(0x06, 0);
+	HAL_Delay(1);
+	//Display on, cursor off
+	lcd_write(0x0C, 0);
+	//lcd_write(0x0F, 0);
+	HAL_Delay(5);
+	//move cursor to the rigth
+	lcd_write(0x14, 0);
+	HAL_Delay(5);
+	//8bit, two lines, 5x7 Font
+	lcd_write(0x38, 0);
+	HAL_Delay(5);
+}
+
+static void lcd_write_string(char data[], uint8_t line)
+{
+	uint8_t i = 0;
+	
+	//Clear Display
+	if(line == 0) lcd_write(0x80, 0);
+	else lcd_write(0xC0, 0);
+	//HAL_Delay(1);
+	while(data[i] != 0)
+	{
+		lcd_write((uint8_t) data[i], 1);
+		i++;
+		
+	}
+}
+
+static void update_smeter(uint8_t s_value, uint8_t mod)
+{
+	char out[17], buffer[5];
+	uint8_t i;
+	
+	out[0] = 'S';
+	for(i=1; i<=9; i++) //S-Meter Graph
+	{
+		if(i <= s_value) out[i] = '>';
+		else out[i] = ' ';
+	}
+	out[10] = 0x0;
+	if(s_value < 10)
+	{
+		sprintf(buffer, "%d ", s_value);
+		strcat(out, buffer);
+	}
+	else 
+	{
+		out[10] = '9';
+		out[11] = '+';
+	}
+	out[12] = 0x0;
+	
+	if(mod == 5) strcat(out, " NFM");
+	else if(mod == 3) strcat(out, " USB");
+	else if(mod == 4) strcat(out, " LSB");
+	
+	lcd_write_string(out, 1);
+}
+
+static void update_freq(uint8_t tx)
+{
+	char out[17], buffer[16];
+	uint8_t len, i;
+	
+	sprintf(out, "%d", freq);
+	len = strlen(out);
+	for(i=0;i<=(8-len); i++) buffer[i] = '0'; //Add 0 to get constant string size
+	buffer[i++] = 0;
+	strcat(buffer, out);
+	
+	//Add points
+	for(i=0;i<=1;i++) out[i] = buffer[i];
+	out[2] = '.';
+	for(i=3;i<=5;i++) out[i] = buffer[i-1];
+	out[6] = '.';
+	for(i=7;i<=9;i++) out[i] = buffer[i-2];
+	out[10] = ',';
+	out[11] = buffer[8];
+	out[12] = 'H';
+	out[13] = 'z';
+	out[14] = ' ';
+	if(tx == 1) out[15] = '!';
+	else out[15] = ' ';
+	out[16] = 0;
+	
+	lcd_write_string(out, 0);
+}
+
+inline static void set_ad9850_freq(uint64_t freq_buf, uint8_t pw_d, uint8_t phase_reg_in) //freq in * 0,1 Hz (dezi Hz)
 {
 	static uint8_t w[5], i;
 	static const uint64_t ref = 1250000000;
@@ -99,7 +213,7 @@ inline static void set_ad9850_freq(uint64_t freq_buf, uint8_t pw_d) //freq in * 
 	
 	//w_erg = 0xFF00FF00; //Test
 	
-	w[0] = (~pw_d & 0x01) << 2; //allowes to turn of the carrier
+	w[0] = ((phase_reg_in << 1) | (~pw_d & 0x01)) << 2; //allowes to turn of the carrier
 	w[1] = (w_erg >> 24) & 0xFF;
 	w[2] = (w_erg >> 16) & 0xFF;
 	w[3] = (w_erg >> 8) & 0xFF;
@@ -203,14 +317,76 @@ __forceinline static void ssb(uint8_t lsb)
 	offset = dif;
 	
 	carrier = 1;
-	if(amplitude_q == 0) carrier = 0; //no carrier when there is no audio input and thus no amplitude
+	if(amplitude_q < 200) carrier = 0; //no carrier when there is no audio input and thus no amplitude
 	
 	//LSB
 	if(lsb == 1) offset = offset * -1; //mirror the frequencies on the carrier.
 	
+	//DDS Phase Reg
+	phase_reg = 0;
+	
 	new_sample = 0; //calculation finished
 	
 //++++++++END OF CONSTRUCTION AREA++++++++
+}
+
+__forceinline static void ssb_pm(uint8_t lsb) //uses the phase modulation of the dds
+{
+	//DC Removal variables
+	volatile static float w_dc = 0, w_dc1 = 0;
+	static const float a_dc = 0.99;
+	int16_t hilbert_input_i;
+	static q31_t hilbert_input;
+
+	//Hilbert-Filter variables
+	static q31_t w[16], y_I = 0, y_Q = 0;
+	static q31_t amplitude_q;
+	static const q31_t a[4] = {toQ31(0.052981), toQ31(0.088199), toQ31(0.18683), toQ31(0.62783)};  //calculated with octave
+	static uint8_t pos = 0; //ringbuffer position
+	static const q31_t div = toQ31(0.5);
+	
+	//Phase variables
+	static float  phase;
+	
+	//will be implemented in q31 in the future
+	w_dc = adc_value + a_dc * w_dc1;
+	hilbert_input_i = (int) (w_dc - w_dc1);
+	w_dc1 = w_dc;
+	
+	hilbert_input = mulQ31((hilbert_input_i * ( toQ31(1) / 2048 )), div);
+
+	w[++pos & 0x0F] = hilbert_input;
+	y_I = rW(7);
+	//structure optimation inspired by wikipedia: Hilbert-Transformation
+	//Designed with Octave
+	y_Q = mulQ31(rW(14) - rW(0), a[0]) +
+        mulQ31(rW(12) - rW(2), a[1]) +
+        mulQ31(rW(10) - rW(4), a[2]) +
+        mulQ31(rW(8) - rW(6), a[3]);
+	
+	//Komponentenschreibweise zu Winkelschreibweise (Component notation to Angular notation?)
+	arm_sqrt_q31(mulQ31(mulQ31(y_I, y_I), div) + mulQ31(mulQ31(y_Q, y_Q), div), &amplitude_q);
+	//amplitude = (uint16_t) mulQ31( amplitude_q, (q31_t) toQ31( 4096 / toQ31(1))); //Not tested
+	
+	if((y_Q != 0) && (y_I != 0))
+	{
+		phase = atan2f(fromQ31(y_Q), fromQ31(y_I));
+		//phase = y_Q / y_I;
+		//phase = (PI / 4) * phase + 0.285 * phase * (1 - fabs(phase));
+		if(phase < 0) phase = 2 * PI + phase; //convert negativ phase to positiv phase (atan2f returns a value between -pi and +pi)
+		phase = (phase / (2 * PI)) * PHASE_RES_2; //PHASE_RES is the phase resulution (importent when converting to int) (0 to 2)
+	}
+	else
+	{
+		phase = 0;
+	}
+	phase_reg = (int) round(phase);
+	
+	carrier = 1;
+	if(amplitude_q == 0) carrier = 0; //no carrier when there is no audio input and thus no amplitude
+	
+	new_sample = 0; //calculation finished
+	
 }
 
 __forceinline static void nfm(uint8_t comp)
@@ -258,7 +434,7 @@ __forceinline static void nfm(uint8_t comp)
 		}
 	}
 	
-	carrier = 1; //Carrier continuously on
+	carrier = 1;
 	new_sample = 0; //calculation finished
 }
 
@@ -276,7 +452,8 @@ __forceinline static void nfm(uint8_t comp)
 int main(void)
 {
   /* USER CODE BEGIN 1 */
-	uint8_t mod = 5; //0 = No_TX; 1 = AM; 2 = FM; 3 = USB; 4 = LSB; 5 = NFM
+	uint8_t mod = 5; //1 = AM; 3 = USB; 4 = LSB; 5 = NFM
+	uint8_t tx = 0, tx_prev = 0;
   /* USER CODE END 1 */
 
   /* MCU Configuration----------------------------------------------------------*/
@@ -306,6 +483,8 @@ int main(void)
 	HAL_Delay(1);
 	HAL_GPIO_WritePin(GPIOA, DDS_Reset_Pin, GPIO_PIN_RESET);
 	
+	lcd_init();
+	
 	HAL_ADC_Start_IT(&hadc1); //Start audio ADC
   HAL_TIM_Base_Start(&htim3); //This timer defines the audio sample rate
   HAL_TIM_PWM_Start(&htim4, TIM_CHANNEL_1); //RF amplitude PWM
@@ -327,6 +506,41 @@ while(1)
   /* USER CODE END WHILE */
 
   /* USER CODE BEGIN 3 */
+	
+//READ TX_RX_IN Pin
+tx = HAL_GPIO_ReadPin(GPIOB, TX_RX_IN_Pin);
+
+//++++RECEIVE++++
+	
+	if(tx == 0)
+	{
+		if(tx_prev == 1) //change configuration after TX
+		{
+			HAL_TIM_Base_Stop(&htim3); //Stop MIC sampling
+			set_ad9850_freq(0,0,0); //No TX
+			update_freq(tx); //TX indicator
+		}
+		tx_prev = tx;
+		
+		//High speed stuff
+		HAL_Delay(1);
+		update_smeter(10, mod);
+		update_freq(tx);
+	}
+	
+//++++TRANSMIT++++	
+	
+	else
+	{
+	if(tx_prev == 0) //change configuration after RX
+	{
+		update_freq(tx); //TX indicator
+		update_smeter(0, mod);
+		HAL_TIM_Base_Start(&htim3); //Start MIC sampling
+	}
+	tx_prev = tx;
+	
+	//High Speed stuff
 	if((mod == 1) && (new_sample == 1))
 	  {
 		  HAL_GPIO_WritePin(GPIOA, LED_Pin, GPIO_PIN_SET); //Speed Test
@@ -355,10 +569,19 @@ while(1)
 		{
 		  HAL_GPIO_WritePin(GPIOA, LED_Pin, GPIO_PIN_SET); //Speed Test
 
-		  nfm(0);
+		  nfm(1);
 
 		  HAL_GPIO_WritePin(GPIOA, LED_Pin, GPIO_PIN_RESET); //Speed Test
 		}
+		else if((mod == 6) && (new_sample == 1))
+		{
+			HAL_GPIO_WritePin(GPIOA, LED_Pin, GPIO_PIN_SET); //Speed Test
+
+		  ssb_pm(0);
+
+		  HAL_GPIO_WritePin(GPIOA, LED_Pin, GPIO_PIN_RESET); //Speed Test
+		}
+	}
   }
   /* USER CODE END 3 */
 
@@ -447,7 +670,6 @@ static void MX_ADC1_Init(void)
   sConfig.Channel = ADC_CHANNEL_0;
   sConfig.Rank = ADC_REGULAR_RANK_1;
   sConfig.SamplingTime = ADC_SAMPLETIME_1CYCLE_5;
-	//sConfig.SamplingTime = ADC_SAMPLETIME_239CYCLES_5;
   if (HAL_ADC_ConfigChannel(&hadc1, &sConfig) != HAL_OK)
   {
     _Error_Handler(__FILE__, __LINE__);
@@ -614,6 +836,11 @@ static void MX_GPIO_Init(void)
   /*Configure GPIO pin Output Level */
   HAL_GPIO_WritePin(GPIOA, LED_Pin|DDS_Reset_Pin, GPIO_PIN_RESET);
 
+  /*Configure GPIO pin Output Level */
+  HAL_GPIO_WritePin(GPIOB, D2_Pin|D3_Pin|D4_Pin|D5_Pin 
+                          |D6_Pin|D7_Pin|E_Pin|RS_Pin 
+                          |D0_Pin|D1_Pin, GPIO_PIN_RESET);
+
   /*Configure GPIO pins : dds0_Pin dds1_Pin dds2_Pin dds3_Pin 
                            dds4_Pin dds5_Pin dds6_Pin dds7_Pin 
                            fq_ud_Pin w_clk_Pin */
@@ -625,19 +852,29 @@ static void MX_GPIO_Init(void)
   GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_HIGH;
   HAL_GPIO_Init(GPIOC, &GPIO_InitStruct);
 
-  /*Configure GPIO pin : LED_Pin */
-  GPIO_InitStruct.Pin = LED_Pin;
-  GPIO_InitStruct.Mode = GPIO_MODE_OUTPUT_PP;
-  GPIO_InitStruct.Pull = GPIO_NOPULL;
-  GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_LOW;
-  HAL_GPIO_Init(LED_GPIO_Port, &GPIO_InitStruct);
-
-  /*Configure GPIO pin : DDS_Reset_Pin */
-  GPIO_InitStruct.Pin = DDS_Reset_Pin;
+  /*Configure GPIO pins : LED_Pin DDS_Reset_Pin */
+  GPIO_InitStruct.Pin = LED_Pin|DDS_Reset_Pin;
   GPIO_InitStruct.Mode = GPIO_MODE_OUTPUT_PP;
   GPIO_InitStruct.Pull = GPIO_NOPULL;
   GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_HIGH;
-  HAL_GPIO_Init(DDS_Reset_GPIO_Port, &GPIO_InitStruct);
+  HAL_GPIO_Init(GPIOA, &GPIO_InitStruct);
+
+  /*Configure GPIO pins : D2_Pin D3_Pin D4_Pin D5_Pin 
+                           D6_Pin D7_Pin E_Pin RS_Pin 
+                           D0_Pin D1_Pin */
+  GPIO_InitStruct.Pin = D2_Pin|D3_Pin|D4_Pin|D5_Pin 
+                          |D6_Pin|D7_Pin|E_Pin|RS_Pin 
+                          |D0_Pin|D1_Pin;
+  GPIO_InitStruct.Mode = GPIO_MODE_OUTPUT_PP;
+  GPIO_InitStruct.Pull = GPIO_NOPULL;
+  GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_HIGH;
+  HAL_GPIO_Init(GPIOB, &GPIO_InitStruct);
+
+  /*Configure GPIO pin : TX_RX_IN_Pin */
+  GPIO_InitStruct.Pin = TX_RX_IN_Pin;
+  GPIO_InitStruct.Mode = GPIO_MODE_INPUT;
+  GPIO_InitStruct.Pull = GPIO_PULLDOWN;
+  HAL_GPIO_Init(TX_RX_IN_GPIO_Port, &GPIO_InitStruct);
 
 }
 
@@ -667,7 +904,7 @@ void HAL_ADC_ConvCpltCallback(ADC_HandleTypeDef* hadc1) //Called if new audio sa
 	new_sample = 1; //Tells the main program to compute a new sample
 	TIM4->CCR1 = amplitude; //output the last calculated RF sample amplitude
 	//TIM2->CCR1 = dif; //output the last calculated RF sample frequency (not used any more)
-	set_ad9850_freq(TX_FREQ + offset, carrier); //Set the DDS frequnecy
+	set_ad9850_freq(freq + offset, carrier, phase_reg); //Set the DDS frequnecy
 }
 /* USER CODE END 4 */
 
