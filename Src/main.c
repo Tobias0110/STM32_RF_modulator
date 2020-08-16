@@ -267,11 +267,22 @@ __forceinline static void ssb(uint8_t lsb)
 	static uint16_t prev_phase;
 	
 	//will be implemented in q31 in the future
-	w_dc = adc_value + a_dc * w_dc1;
+	/*w_dc = adc_value + a_dc * w_dc1;
 	hilbert_input_i = (int) (w_dc - w_dc1);
 	w_dc1 = w_dc;
 	
-	hilbert_input = mulQ31((hilbert_input_i * ( toQ31(1) / 2048 )), div);
+	hilbert_input = mulQ31((hilbert_input_i * ( toQ31(1) / 2048 )), div);*/
+	
+	static q31_t adc_value_q, wdc_q, wdc1_q;
+	static const q31_t adc_q = toQ31(0.99);
+	
+	adc_value_q = adc_value * ( toQ31(1) / 2048 );
+	adc_value_q = adc_value_q >> 10;  //Avoids overflow
+	wdc_q = adc_value_q + mulQ31(adc_q,  wdc1_q);
+	hilbert_input = wdc_q - wdc1_q;
+	wdc1_q = wdc_q;
+	
+	hilbert_input = hilbert_input << 7; //More resulution for the hilbert transformer
 
 	w[++pos & 0x0F] = hilbert_input;
 	y_I = rW(7);
@@ -312,7 +323,7 @@ __forceinline static void ssb(uint8_t lsb)
 	offset = dif;
 	
 	carrier = 1;
-	if(amplitude_q < 10) carrier = 0; //no carrier when there is no audio input and thus no amplitude
+	if(amplitude_q == 0) carrier = 0; //no carrier when there is no audio input and thus no amplitude
 	
 	//LSB
 	if(lsb == 1) offset = offset * -1; //mirror the frequencies on the carrier.
