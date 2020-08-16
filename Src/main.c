@@ -288,18 +288,13 @@ __forceinline static void ssb(uint8_t lsb)
 	arm_sqrt_q31(mulQ31(mulQ31(y_I, y_I), div) + mulQ31(mulQ31(y_Q, y_Q), div), &amplitude_q);
 	//amplitude = (uint16_t) mulQ31( amplitude_q, (q31_t) toQ31( 4096 / toQ31(1))); //Not tested
 	
-	if((y_Q != 0) && (y_I != 0))
-	{
 		phase = atan2f(fromQ31(y_Q), fromQ31(y_I));
 		//phase = y_Q / y_I;
 		//phase = (PI / 4) * phase + 0.285 * phase * (1 - fabs(phase));
 		if(phase < 0) phase = 2 * PI + phase; //convert negativ phase to positiv phase (atan2f returns a value between -pi and +pi)
 		phase = (phase / (2 * PI)) * PHASE_RES; //PHASE_RES is the phase resulution (importent when converting to int)
-	}
-	else
-	{
-		phase = 0;
-	}
+
+	if(y_I == 0) phase = 0;
 	
 	//The differential of a phase gives the frequency change (you can convert a frequency modulator into a phase modulator)
 	dif = (int) phase - prev_phase;
@@ -317,7 +312,7 @@ __forceinline static void ssb(uint8_t lsb)
 	offset = dif;
 	
 	carrier = 1;
-	if(amplitude_q < 200) carrier = 0; //no carrier when there is no audio input and thus no amplitude
+	if(amplitude_q < 10) carrier = 0; //no carrier when there is no audio input and thus no amplitude
 	
 	//LSB
 	if(lsb == 1) offset = offset * -1; //mirror the frequencies on the carrier.
@@ -452,7 +447,7 @@ __forceinline static void nfm(uint8_t comp)
 int main(void)
 {
   /* USER CODE BEGIN 1 */
-	uint8_t mod = 5; //1 = AM; 3 = USB; 4 = LSB; 5 = NFM
+	uint8_t mod = 3; //1 = AM; 3 = USB; 4 = LSB; 5 = NFM
 	uint8_t tx = 0, tx_prev = 0;
   /* USER CODE END 1 */
 
@@ -519,6 +514,7 @@ tx = HAL_GPIO_ReadPin(GPIOB, TX_RX_IN_Pin);
 			HAL_TIM_Base_Stop(&htim3); //Stop MIC sampling
 			set_ad9850_freq(0,0,0); //No TX
 			update_freq(tx); //TX indicator
+			HAL_Delay(200); //entprellen
 		}
 		tx_prev = tx;
 		
@@ -534,6 +530,7 @@ tx = HAL_GPIO_ReadPin(GPIOB, TX_RX_IN_Pin);
 	{
 	if(tx_prev == 0) //change configuration after RX
 	{
+		HAL_Delay(200); //entprellen
 		update_freq(tx); //TX indicator
 		update_smeter(0, mod);
 		HAL_TIM_Base_Start(&htim3); //Start MIC sampling
