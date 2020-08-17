@@ -24,4 +24,6 @@ This picture shows the NFM spectrum with the compressor enabled.
 This picture shows the NFM spectrum with no compressor.  
 ![Compressor off](/nfm_no_compressor.PNG)  
 Spectrum of USB modulation.  
-![USB](/USB.PNG)
+![USB](/USB.PNG)  
+  
+Inspired from: https://github.com/threeme3/QCX-SSB
