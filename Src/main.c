@@ -57,6 +57,9 @@
 #define mulQ31( a, b ) ((int32_t)(( ((int64_t) (a)) * ((int64_t) (b)) ) >> 31 ))
 #define rW( n ) w[(pos- n)&0xF]
 #define fromQ31( v ) (((float)v) / 2147483648 )
+#define PIQ31 ((int32_t) toQ31(PI))
+#define sgnCompQ31( a, b ) ( ((a >> 31) & 0x1) == ((b >> 31) & 0x1) )
+#define divQ31( a, b ) ((int32_t)( sgnCompQ31(a, b) ? ( ((((int64_t)a) << 31) + (b>>1)) / b ) : ( ((((int64_t)a) << 31) - (b>>1)) / b ) ))
 /* USER CODE END Includes */
 
 /* Private variables ---------------------------------------------------------*/
@@ -247,6 +250,28 @@ __forceinline static void bc_am()  //broadcast quality AM. Uses max. sample rate
 	w_dc1 = w_dc;
 	new_sample = 0;
 }
+
+__forceinline int32_t max( int32_t a, int32_t b ) { return a > b ? a : b;  }
+
+__forceinline int32_t min( int32_t a, int32_t b ) { return a < b ? a : b;  }
+
+__forceinline int32_t abs( int32_t a ) { return a < 0 ? (0 -a) : a; }
+
+__forceinline int32_t atan2q31( int32_t a, int32_t b ) {
+    //int32_t x= divQ31( a, b );
+
+    int64_t d= ((int64_t)a) << 31;
+    if( sgnCompQ31(a, b) ) {
+        d+= (b>>1);
+    } else {
+        d-= (b>>1);
+    }
+    int32_t x= (d / (int64_t)b);
+
+    // (PI / 4) * x + 0.285 * x * (1 - |x|);
+    return mulQ31( (PIQ31 / 4), x ) + mulQ31( toQ31(57 / 200), mulQ31(x, (x- abs(x) ) ) );
+}
+
 __forceinline static void ssb(uint8_t lsb)
 {
 	//DC Removal variables
@@ -264,7 +289,8 @@ __forceinline static void ssb(uint8_t lsb)
 	
 	//Phase to Frquency variables
 	static float  phase;
-	static uint16_t prev_phase;
+	static int32_t prev_phase;
+	static int32_t phase_i = 0, prev_phase_i = 0;
 	
 	//will be implemented in q31 in the future
 	/*w_dc = adc_value + a_dc * w_dc1;
@@ -296,29 +322,38 @@ __forceinline static void ssb(uint8_t lsb)
 //++++++++THE FOLLOWING PART IS UNDER CONSTRUCTION++++++++
 	
 	//Komponentenschreibweise zu Winkelschreibweise (Component notation to Angular notation?)
-	arm_sqrt_q31(mulQ31(mulQ31(y_I, y_I), div) + mulQ31(mulQ31(y_Q, y_Q), div), &amplitude_q);
+	//arm_sqrt_q31(mulQ31(mulQ31(y_I, y_I), div) + mulQ31(mulQ31(y_Q, y_Q), div), &amplitude_q);
+	amplitude_q = mulQ31(mulQ31(y_I, y_I), div) + mulQ31(mulQ31(y_Q, y_Q), div); //is sufficient for detecting 0
 	//amplitude = (uint16_t) mulQ31( amplitude_q, (q31_t) toQ31( 4096 / toQ31(1))); //Not tested
 	
-		phase = atan2f(fromQ31(y_Q), fromQ31(y_I));
-		//phase = y_Q / y_I;
-		//phase = (PI / 4) * phase + 0.285 * phase * (1 - fabs(phase));
-		if(phase < 0) phase = 2 * PI + phase; //convert negativ phase to positiv phase (atan2f returns a value between -pi and +pi)
-		phase = (phase / (2 * PI)) * PHASE_RES; //PHASE_RES is the phase resulution (importent when converting to int)
+	static q31_t phase_q;
+	
+		phase_q = toQ31(atan2f(fromQ31(y_Q), fromQ31(y_I)) / PI); //[-1 1]
+		//phase = phase / 2;
+		phase_q = phase_q >> 1;
+		//if(phase < 0) phase = 1 + phase; //convert negativ phase to positiv phase (atan2f returns a value between -pi and +pi)
+		if(phase_q < 0) phase_q = toQ31(1) + phase_q;
+		//phase = (phase / (2 * PI)) * PHASE_RES; //PHASE_RES is the phase resulution (importent when converting to int)
+		//phase = fromQ31(phase_q) * PHASE_RES;
+		phase_i = (((phase_q >> 16) * PHASE_RES) >> 15);
 
-	if(y_I == 0) phase = 0;
+	if(y_I == 0) phase_i = 0;
 	
 	//The differential of a phase gives the frequency change (you can convert a frequency modulator into a phase modulator)
-	dif = (int) phase - prev_phase;
-	prev_phase = (int) phase;
+	/*dif = (int) phase - prev_phase;
+	prev_phase = (int) phase;*/
+	
+	dif = phase_i - prev_phase_i;
+	prev_phase_i = phase_i;
 	
 	//a "circular" nummber set is needed
 	if(dif < 0) dif = dif + PHASE_RES; //avoid negativ phase differences (and therefore negative frequencies)
 	
-	if(dif > MAX_F) //Reducing the bandwidth while maintaining the required frequency shift (delaying to the next sample)
+	/*if(dif > MAX_F) //Reducing the bandwidth while maintaining the required frequency shift (delaying to the next sample)
 	{
 		prev_phase = phase - (dif - MAX_F);
 		dif = MAX_F;
-	}
+	}*/
 	
 	offset = dif;
 	
@@ -334,65 +369,6 @@ __forceinline static void ssb(uint8_t lsb)
 	new_sample = 0; //calculation finished
 	
 //++++++++END OF CONSTRUCTION AREA++++++++
-}
-
-__forceinline static void ssb_pm(uint8_t lsb) //uses the phase modulation of the dds
-{
-	//DC Removal variables
-	volatile static float w_dc = 0, w_dc1 = 0;
-	static const float a_dc = 0.99;
-	int16_t hilbert_input_i;
-	static q31_t hilbert_input;
-
-	//Hilbert-Filter variables
-	static q31_t w[16], y_I = 0, y_Q = 0;
-	static q31_t amplitude_q;
-	static const q31_t a[4] = {toQ31(0.052981), toQ31(0.088199), toQ31(0.18683), toQ31(0.62783)};  //calculated with octave
-	static uint8_t pos = 0; //ringbuffer position
-	static const q31_t div = toQ31(0.5);
-	
-	//Phase variables
-	static float  phase;
-	
-	//will be implemented in q31 in the future
-	w_dc = adc_value + a_dc * w_dc1;
-	hilbert_input_i = (int) (w_dc - w_dc1);
-	w_dc1 = w_dc;
-	
-	hilbert_input = mulQ31((hilbert_input_i * ( toQ31(1) / 2048 )), div);
-
-	w[++pos & 0x0F] = hilbert_input;
-	y_I = rW(7);
-	//structure optimation inspired by wikipedia: Hilbert-Transformation
-	//Designed with Octave
-	y_Q = mulQ31(rW(14) - rW(0), a[0]) +
-        mulQ31(rW(12) - rW(2), a[1]) +
-        mulQ31(rW(10) - rW(4), a[2]) +
-        mulQ31(rW(8) - rW(6), a[3]);
-	
-	//Komponentenschreibweise zu Winkelschreibweise (Component notation to Angular notation?)
-	arm_sqrt_q31(mulQ31(mulQ31(y_I, y_I), div) + mulQ31(mulQ31(y_Q, y_Q), div), &amplitude_q);
-	//amplitude = (uint16_t) mulQ31( amplitude_q, (q31_t) toQ31( 4096 / toQ31(1))); //Not tested
-	
-	if((y_Q != 0) && (y_I != 0))
-	{
-		phase = atan2f(fromQ31(y_Q), fromQ31(y_I));
-		//phase = y_Q / y_I;
-		//phase = (PI / 4) * phase + 0.285 * phase * (1 - fabs(phase));
-		if(phase < 0) phase = 2 * PI + phase; //convert negativ phase to positiv phase (atan2f returns a value between -pi and +pi)
-		phase = (phase / (2 * PI)) * PHASE_RES_2; //PHASE_RES is the phase resulution (importent when converting to int) (0 to 2)
-	}
-	else
-	{
-		phase = 0;
-	}
-	phase_reg = (int) round(phase);
-	
-	carrier = 1;
-	if(amplitude_q == 0) carrier = 0; //no carrier when there is no audio input and thus no amplitude
-	
-	new_sample = 0; //calculation finished
-	
 }
 
 __forceinline static void nfm(uint8_t comp)
@@ -578,14 +554,6 @@ tx = HAL_GPIO_ReadPin(GPIOB, TX_RX_IN_Pin);
 		  HAL_GPIO_WritePin(GPIOA, LED_Pin, GPIO_PIN_SET); //Speed Test
 
 		  nfm(1);
-
-		  HAL_GPIO_WritePin(GPIOA, LED_Pin, GPIO_PIN_RESET); //Speed Test
-		}
-		else if((mod == 6) && (new_sample == 1))
-		{
-			HAL_GPIO_WritePin(GPIOA, LED_Pin, GPIO_PIN_SET); //Speed Test
-
-		  ssb_pm(0);
 
 		  HAL_GPIO_WritePin(GPIOA, LED_Pin, GPIO_PIN_RESET); //Speed Test
 		}

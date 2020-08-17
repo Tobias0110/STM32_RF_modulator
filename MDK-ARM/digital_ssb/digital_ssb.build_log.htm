@@ -28,15 +28,19 @@ Project File Date:  08/15/2020
 *** Using Compiler 'V5.06 update 5 (build 528)', folder: 'C:\Keil_v5\ARM\ARMCC\Bin'
 Build target 'digital_ssb'
 compiling main.c...
-../Src/main.c(254): warning:  #177-D: variable "a_dc"  was declared but never referenced
+../Src/main.c(279): warning:  #177-D: variable "a_dc"  was declared but never referenced
   	static const float a_dc = 0.99;
-../Src/main.c(255): warning:  #177-D: variable "hilbert_input_i"  was declared but never referenced
+../Src/main.c(280): warning:  #177-D: variable "hilbert_input_i"  was declared but never referenced
   	int16_t hilbert_input_i;
-../Src/main.c: 2 warnings, 0 errors
+../Src/main.c(291): warning:  #177-D: variable "phase"  was declared but never referenced
+  	static float  phase;
+../Src/main.c(292): warning:  #177-D: variable "prev_phase"  was declared but never referenced
+  	static int32_t prev_phase;
+../Src/main.c: 4 warnings, 0 errors
 linking...
-Program Size: Code=12228 RO-data=284 RW-data=144 ZI-data=1392  
+Program Size: Code=10376 RO-data=284 RW-data=128 ZI-data=1328  
 FromELF: creating hex file...
-"digital_ssb\digital_ssb.axf" - 0 Error(s), 2 Warning(s).
+"digital_ssb\digital_ssb.axf" - 0 Error(s), 4 Warning(s).
 
 <h2>Software Packages used:</h2>
 
@@ -64,7 +68,7 @@ Package Vendor: Keil
       Include file:  CMSIS\Include\arm_math.h
 
    * Component: ARM::CMSIS:CORE:5.1.1
-Build Time Elapsed:  00:00:08
+Build Time Elapsed:  00:00:07
 </pre>
 </body>
 </html>
