@@ -18,7 +18,7 @@ You need:
 
 ## Quality
 There are some audio exampels in the repository.  
-Update: The FM quality could be further improved while reducing the modulator code. The preemphasis filter is now implemented in the DC blocking filter. 
+Update: The FM quality could be further improved while reducing the modulator code (spectrum screenshots not up to date). The preemphasis filter is now implemented in the DC blocking filter. 
 This picture shows the NFM spectrum with the compressor enabled.  
 ![Compressor on](/nfm_with_compressor.PNG)  
 This picture shows the NFM spectrum with no compressor.  

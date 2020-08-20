@@ -53,13 +53,11 @@
 
 //Macros
 #define GPIOB_PIN(n) (*(PERIPH_BB_BASE + (GPIOB->ODR - PERIPH_BASE) * 0x20 + n * 4)) //Bit banding
-#define toQ31 2147483648*
+//#define toQ31 2147483648*
+#define toQ31( v ) ((int32_t) ((2147483648 - 1)*v))
 #define mulQ31( a, b ) ((int32_t)(( ((int64_t) (a)) * ((int64_t) (b)) ) >> 31 ))
 #define rW( n ) w[(pos- n)&0xF]
-#define fromQ31( v ) (((float)v) / 2147483648 )
-#define PIQ31 ((int32_t) toQ31(PI))
-#define sgnCompQ31( a, b ) ( ((a >> 31) & 0x1) == ((b >> 31) & 0x1) )
-#define divQ31( a, b ) ((int32_t)( sgnCompQ31(a, b) ? ( ((((int64_t)a) << 31) + (b>>1)) / b ) : ( ((((int64_t)a) << 31) - (b>>1)) / b ) ))
+#define fromQ31( v ) (((float)v) / (2147483648 - 1) )
 /* USER CODE END Includes */
 
 /* Private variables ---------------------------------------------------------*/
@@ -251,25 +249,51 @@ __forceinline static void bc_am()  //broadcast quality AM. Uses max. sample rate
 	new_sample = 0;
 }
 
-__forceinline int32_t max( int32_t a, int32_t b ) { return a > b ? a : b;  }
-
-__forceinline int32_t min( int32_t a, int32_t b ) { return a < b ? a : b;  }
-
 __forceinline int32_t abs( int32_t a ) { return a < 0 ? (0 -a) : a; }
 
-__forceinline int32_t atan2q31( int32_t a, int32_t b ) {
-    //int32_t x= divQ31( a, b );
+/*__forceinline static int32_t divQ31(int32_t a, int32_t b)
+{
+    //pre-multiply by the base (Upscale to Q63 so that the result will be in Q31 format)
+    static int64_t temp;
 
-    int64_t d= ((int64_t)a) << 31;
-    if( sgnCompQ31(a, b) ) {
-        d+= (b>>1);
+    if( a == b) return toQ31(1);
+    else
+    {
+    temp = (int64_t)a << 31;
+    if (((temp >= 0) && (b >= 0)) || ((temp < 0) && (b < 0))) {
+        temp += (b >> 1);
     } else {
-        d-= (b>>1);
+        temp -= (b >> 1);
     }
-    int32_t x= (d / (int64_t)b);
+    return (int32_t)(temp / b);
+    }
+}*/
 
-    // (PI / 4) * x + 0.285 * x * (1 - |x|);
-    return mulQ31( (PIQ31 / 4), x ) + mulQ31( toQ31(57 / 200), mulQ31(x, (x- abs(x) ) ) );
+__forceinline static int32_t divQ31(int32_t a, int32_t b)
+{
+	return toQ31(fromQ31(a) / fromQ31(b));
+}
+
+__forceinline static int32_t atanQ31(int32_t x)
+{
+    //x = [-1 1] --> y = [-0.25 0.25] = [-45° 45°]
+    return mulQ31( toQ31(1/PI), mulQ31(toQ31(PI/4), x) + mulQ31(mulQ31(toQ31(0.285), x), (toQ31(1) - abs(x))));
+}
+
+__forceinline static int32_t atan2_Q31(int32_t q, int32_t i)
+{
+    static int32_t erg;
+
+    if(abs(q) > abs(i))
+    {
+        erg = toQ31(0.5) - atanQ31(divQ31(abs(i), abs(q))); //arctan(z) = 90-arctan(1/z) (0.5 = 90°)
+    }
+    else
+    {
+        erg = (i == 0) ? 0 : atanQ31(divQ31(abs(q), abs(i))); //arctan(z)
+    }
+    erg = (i < 0) ? toQ31(1) - erg : erg; //arctan(-z) = -arctan(z) (1 = 180°)
+    return (q < 0) ? 0-erg : erg;
 }
 
 __forceinline static void ssb(uint8_t lsb)
@@ -328,7 +352,10 @@ __forceinline static void ssb(uint8_t lsb)
 	
 	static q31_t phase_q;
 	
-		phase_q = toQ31(atan2f(fromQ31(y_Q), fromQ31(y_I)) / PI); //[-1 1]
+		if((y_I == 0) && (y_Q > 0)) phase_q = toQ31(0.5); //phase strebt gegen 90° wenn I gegen 0 geht und Q positiv ist
+		else if ((y_I == 0) && (y_Q < 0)) phase_q = toQ31(-0.5); //phase strebt gegen -90° wenn I gegen 0 geht und Q negativ ist
+		//else phase_q = toQ31(atan2f(fromQ31(y_Q), fromQ31(y_I)) / PI); //[-1 1]
+		else phase_q = atan2_Q31(y_Q, y_I);
 		//phase = phase / 2;
 		phase_q = phase_q >> 1;
 		//if(phase < 0) phase = 1 + phase; //convert negativ phase to positiv phase (atan2f returns a value between -pi and +pi)
@@ -336,8 +363,6 @@ __forceinline static void ssb(uint8_t lsb)
 		//phase = (phase / (2 * PI)) * PHASE_RES; //PHASE_RES is the phase resulution (importent when converting to int)
 		//phase = fromQ31(phase_q) * PHASE_RES;
 		phase_i = (((phase_q >> 16) * PHASE_RES) >> 15);
-
-	if(y_I == 0) phase_i = 0;
 	
 	//The differential of a phase gives the frequency change (you can convert a frequency modulator into a phase modulator)
 	/*dif = (int) phase - prev_phase;
