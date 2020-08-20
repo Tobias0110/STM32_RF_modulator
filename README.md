@@ -13,12 +13,13 @@ You need:
 * AD9850 board
 * 12MHz Crystal. This must be soldered on the uC board (X3). R35 and R37 must be bridged. In my case the oscillator worked without C33 and C34.
 * Audio source
+* 1602A LCD
 
 ![Pinout](/Pinout.PNG)
 
 ## Quality
 There are some audio exampels in the repository.  
-Update: The FM quality could be further improved while reducing the modulator code (spectrum screenshots not up to date). The preemphasis filter is now implemented in the DC blocking filter. 
+Update: The FM quality could be further improved while reducing the modulator code. The preemphasis filter is now implemented in the DC blocking filter. 
 This picture shows the NFM spectrum with the compressor enabled.  
 ![Compressor on](/nfm_with_compressor.PNG)  
 This picture shows the NFM spectrum with no compressor.  
