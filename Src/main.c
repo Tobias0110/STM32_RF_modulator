@@ -48,7 +48,8 @@
 #include <string.h>
 
 #define PHASE_RES 58968
-#define MAX_F 60000 //Max SSB frequency offset
+//#define SSB_LIM
+#define MAX_F 30000 //Max SSB frequency offset
 #define PHASE_RES_2 31
 
 //Macros
@@ -251,24 +252,20 @@ __forceinline static void bc_am()  //broadcast quality AM. Uses max. sample rate
 
 __forceinline int32_t abs( int32_t a ) { return a < 0 ? (0 -a) : a; }
 
+//only positiv values allowed
 /*__forceinline static int32_t divQ31(int32_t a, int32_t b)
 {
-    //pre-multiply by the base (Upscale to Q63 so that the result will be in Q31 format)
-    static int64_t temp;
+    static int32_t erg;
 
     if( a == b) return toQ31(1);
     else
     {
-    temp = (int64_t)a << 31;
-    if (((temp >= 0) && (b >= 0)) || ((temp < 0) && (b < 0))) {
-        temp += (b >> 1);
-    } else {
-        temp -= (b >> 1);
-    }
-    return (int32_t)(temp / b);
+    erg = a / (b >> 15);
+    return erg << 16;
     }
 }*/
 
+//Sounds better
 __forceinline static int32_t divQ31(int32_t a, int32_t b)
 {
 	return toQ31(fromQ31(a) / fromQ31(b));
@@ -300,8 +297,6 @@ __forceinline static void ssb(uint8_t lsb)
 {
 	//DC Removal variables
 	volatile static float w_dc = 0, w_dc1 = 0;
-	static const float a_dc = 0.99;
-	int16_t hilbert_input_i;
 	static q31_t hilbert_input;
 
 	//Hilbert-Filter variables
@@ -312,8 +307,6 @@ __forceinline static void ssb(uint8_t lsb)
 	static const q31_t div = toQ31(0.5);
 	
 	//Phase to Frquency variables
-	static float  phase;
-	static int32_t prev_phase;
 	static int32_t phase_i = 0, prev_phase_i = 0;
 	
 	//will be implemented in q31 in the future
@@ -358,15 +351,12 @@ __forceinline static void ssb(uint8_t lsb)
 		else phase_q = atan2_Q31(y_Q, y_I);
 		//phase = phase / 2;
 		phase_q = phase_q >> 1;
-		//if(phase < 0) phase = 1 + phase; //convert negativ phase to positiv phase (atan2f returns a value between -pi and +pi)
+		//convert negativ phase to positiv phase (atan2f returns a value between -pi and +pi)
 		if(phase_q < 0) phase_q = toQ31(1) + phase_q;
-		//phase = (phase / (2 * PI)) * PHASE_RES; //PHASE_RES is the phase resulution (importent when converting to int)
-		//phase = fromQ31(phase_q) * PHASE_RES;
+		//PHASE_RES is the phase resulution (importent when converting to int)
 		phase_i = (((phase_q >> 16) * PHASE_RES) >> 15);
 	
 	//The differential of a phase gives the frequency change (you can convert a frequency modulator into a phase modulator)
-	/*dif = (int) phase - prev_phase;
-	prev_phase = (int) phase;*/
 	
 	dif = phase_i - prev_phase_i;
 	prev_phase_i = phase_i;
@@ -374,11 +364,14 @@ __forceinline static void ssb(uint8_t lsb)
 	//a "circular" nummber set is needed
 	if(dif < 0) dif = dif + PHASE_RES; //avoid negativ phase differences (and therefore negative frequencies)
 	
-	/*if(dif > MAX_F) //Reducing the bandwidth while maintaining the required frequency shift (delaying to the next sample)
+	//Reduces bandwith but lowers quality
+	#ifdef SSB_LIM
+	if(dif > MAX_F) //Reducing the bandwidth while maintaining the required frequency shift (delaying to the next sample)
 	{
-		prev_phase = phase - (dif - MAX_F);
+		prev_phase_i = phase_i - (dif - MAX_F);
 		dif = MAX_F;
-	}*/
+	}
+	#endif
 	
 	offset = dif;
 	
