@@ -92,7 +92,7 @@ volatile static int16_t adc_value = 0, amplitude = 0; //in and outputs
 volatile int32_t dif = 0;
 volatile static int32_t offset;
 volatile static uint8_t phase_reg;
-volatile static uint32_t freq = 36000000; //TX/RX Frequency
+volatile static uint32_t freq = 271150000; //TX/RX Frequency
 
 static void lcd_write(uint8_t data, uint8_t RS)
 {
@@ -395,14 +395,21 @@ __forceinline static void nfm(uint8_t comp)
 {
 	static int16_t gain = 0;
 	static uint16_t to_high = 0, to_low = 0;
+	static int32_t out_dc;
 	
-	//DC Blocking and preemphis
-	static int32_t dc;
-	dc += (adc_value - dc) / 2;
-	adc_value -= dc;
+	static q31_t adc_value_q, wdc_q, wdc1_q, out_dc_q;
+	static const q31_t adc_q = toQ31(0.3);
+	
+	adc_value_q = adc_value * ( toQ31(1) / 2048 );
+	adc_value_q = adc_value_q >> 10;  //Avoids overflow
+	wdc_q = adc_value_q + mulQ31(adc_q,  wdc1_q);
+	out_dc_q = wdc_q - wdc1_q;
+	wdc1_q = wdc_q;
+	
+	out_dc = (out_dc_q << 10) / ( toQ31(1) / 2048 );
 	
 	if(comp == 0) gain = 0; //Deactivates the compressor
-	offset = (int32_t) (adc_value * (50 + gain));
+	offset = (int32_t) (out_dc * (50 + gain));
 	
 	//Compressor
 	if(offset > 50000) //Limmit frequency drift
